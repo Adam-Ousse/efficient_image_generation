@@ -35,9 +35,17 @@ image = pipe.generate(
 
 ```python
 # Load GGUF quantized model for lower memory usage
+# Auto-downloads from HuggingFace if not found locally
 pipe = load_pipeline(
     model_id="black-forest-labs/FLUX.2-klein-4B",
-    gguf_path="/path/to/flux-2-klein-4b-Q2_K.gguf",
+    gguf_path="unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q4_K_M.gguf",  # HF format
+    device="cuda"
+)
+
+# Or use a local path
+pipe = load_pipeline(
+    model_id="black-forest-labs/FLUX.2-klein-4B",
+    gguf_path="/path/to/flux-2-klein-4b-Q2_K.gguf",  # Local path
     device="cuda"
 )
 

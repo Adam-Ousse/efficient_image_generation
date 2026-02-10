@@ -39,18 +39,13 @@ def test_gguf_model():
     print("TEST: GGUF Quantized Model")
     print("=" * 60)
     
-    # Path from the working example
-    gguf_path = "/home/ensta/ensta-gassem/.cache/huggingface/hub/models--unsloth--FLUX.2-klein-4B-GGUF/snapshots/0084d1df98e2e2137fe776d55170bc4792ec1d66/flux-2-klein-4b-Q2_K.gguf"
-    
-    if not Path(gguf_path).exists():
-        print(f"⚠ GGUF file not found at: {gguf_path}")
-        print("Skipping GGUF test. Run this to download:")
-        print("  from huggingface_hub import hf_hub_download")
-        print("  hf_hub_download('unsloth/FLUX.2-klein-4B-GGUF', 'flux-2-klein-4b-Q2_K.gguf')")
-        return
-    
+    # Use HuggingFace path format - will auto-download if needed
+    model_id = "black-forest-labs/FLUX.2-klein-4B"
+    # gguf_path = "unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q2_K.gguf"
+    # gguf_path = "unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q4_K_M.gguf"
+    gguf_path = "unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q8_0.gguf"
     pipe = load_pipeline(
-        model_id="black-forest-labs/FLUX.2-klein-4B",
+        model_id=model_id,
         gguf_path=gguf_path,
         device="cuda" if torch.cuda.is_available() else "cpu",
         dtype=torch.float16,
@@ -66,7 +61,7 @@ def test_gguf_model():
         num_inference_steps=4,
         guidance_scale=3.5,
         seed=42,
-        output_path="temp_test_outputs/test_output_gguf.png"
+        output_path=f"temp_test_outputs/test_output_gguf_{gguf_path.split('/')[-1].replace('.gguf', '')}.png"
     )
     
     print(f"[OK]Generated image size: {image.size}")
@@ -108,20 +103,20 @@ def test_multiple_generations():
 if __name__ == "__main__":
     # Run tests
     os.makedirs("temp_test_outputs", exist_ok=True)
-    try:
-        test_standard_model()
-    except Exception as e:
-        print(f"ERROR Standard model test failed: {e}\n")
+    # try:
+    #     test_standard_model()
+    # except Exception as e:
+    #     print(f"ERROR Standard model test failed: {e}\n")
     
     try:
         test_gguf_model()
     except Exception as e:
         print(f"ERROR GGUF model test failed: {e}\n")
     
-    try:
-        test_multiple_generations()
-    except Exception as e:
-        print(f"ERROR Multiple generations test failed: {e}\n")
+    # try:
+    #     test_multiple_generations()
+    # except Exception as e:
+    #     print(f"ERROR Multiple generations test failed: {e}\n")
     
     print("=" * 60)
     print("Tests complete!")

@@ -14,6 +14,12 @@ try:
 except ImportError:
     DIFFUSERS_AVAILABLE = False
 
+try:
+    from huggingface_hub import hf_hub_download
+    HF_HUB_AVAILABLE = True
+except ImportError:
+    HF_HUB_AVAILABLE = False
+
 
 class ImagePipeline:
     """Unified pipeline wrapper for image generation"""
@@ -49,6 +55,8 @@ class ImagePipeline:
         print(f"Loading model: {model_id}")
         if gguf_path:
             print(f"  GGUF quantization: {gguf_path}")
+            # Resolve GGUF path (download if needed)
+            self.gguf_path = self._resolve_gguf_path(gguf_path)
         print(f"  Device: {device}, Dtype: {dtype}")
         
         # Load transformer (GGUF or standard)
@@ -75,6 +83,66 @@ class ImagePipeline:
             print("  VAE slicing not available")
         
         print("✓ Pipeline ready")
+    
+    def _resolve_gguf_path(self, gguf_path: str) -> str:
+        """
+        Resolve GGUF path: download from HuggingFace if needed
+        
+        Supports formats:
+        - Local path: "/path/to/model.gguf"
+        - HF path: "repo_id/filename.gguf" (e.g., "unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q4_K_M.gguf")
+        """
+        # Check if it's a local path that exists
+        if Path(gguf_path).exists():
+            print(f"  ✓ Using local GGUF: {gguf_path}")
+            return gguf_path
+        
+        # Check if it's a HuggingFace path (contains at least 2 slashes: repo/model/file.gguf)
+        parts = gguf_path.split('/')
+        if len(parts) >= 3:
+            # Format: owner/repo/filename
+            repo_id = f"{parts[0]}/{parts[1]}"
+            filename = '/'.join(parts[2:])
+            
+            if not HF_HUB_AVAILABLE:
+                raise ImportError(
+                    "huggingface_hub not installed. Run: pip install huggingface_hub"
+                )
+            
+            print(f"  Resolving GGUF from HuggingFace...")
+            print(f"    Repo: {repo_id}")
+            print(f"    File: {filename}")
+            
+            try:
+                # First try to load from cache only (no download)
+                try:
+                    local_path = hf_hub_download(
+                        repo_id=repo_id, 
+                        filename=filename,
+                        local_files_only=True
+                    )
+                    print(f"  ✓ Found in cache: {local_path}")
+                    return local_path
+                except Exception:
+                    # Not in cache, need to download
+                    print(f"  Downloading from HuggingFace...")
+                    local_path = hf_hub_download(repo_id=repo_id, filename=filename)
+                    print(f"  ✓ Downloaded to: {local_path}")
+                    return local_path
+                    
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load GGUF from HuggingFace: {e}\n"
+                    f"Repo: {repo_id}, File: {filename}"
+                )
+        
+        # Path doesn't exist and isn't a HF path
+        raise FileNotFoundError(
+            f"GGUF file not found: {gguf_path}\n"
+            f"Provide either:\n"
+            f"  - A valid local path\n"
+            f"  - A HuggingFace path (format: owner/repo/filename.gguf)"
+        )
     
     def _load_transformer(self):
         """Load transformer with GGUF or standard weights"""
