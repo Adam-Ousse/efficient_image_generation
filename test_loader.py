@@ -20,7 +20,7 @@ def test_standard_model():
     
     # Generate test image
     image = pipe.generate(
-        prompt="A cat holding a sign that says 'Hello World'",
+        prompt="A penguin holding a sign that says 'GGUF Works!'",
         height=1024,
         width=1024,
         num_inference_steps=4,
@@ -103,15 +103,15 @@ def test_multiple_generations():
 if __name__ == "__main__":
     # Run tests
     os.makedirs("temp_test_outputs", exist_ok=True)
-    # try:
-    #     test_standard_model()
-    # except Exception as e:
-    #     print(f"ERROR Standard model test failed: {e}\n")
-    
     try:
-        test_gguf_model()
+        test_standard_model()
     except Exception as e:
-        print(f"ERROR GGUF model test failed: {e}\n")
+        print(f"ERROR Standard model test failed: {e}\n")
+    
+    # try:
+    #     test_gguf_model()
+    # except Exception as e:
+    #     print(f"ERROR GGUF model test failed: {e}\n")
     
     # try:
     #     test_multiple_generations()

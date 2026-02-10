@@ -29,4 +29,4 @@ for f in *.log; do
 done
 shopt -u nullglob
 
-python test_loader.py 2>&1
+python compare_models.py 2>&1
