@@ -4,7 +4,6 @@
 #SBATCH --error=log%j.log        # Optional, can be the same file
 #SBATCH --time=00:10:00             # Max runtime
 #SBATCH --partition=ENSTA-h100      # Partition
-#SBATCH --nodelist=ensta-h10001.r2.enst.fr
 #SBATCH --gpus=1                    # Number of GPUs
 #SBATCH --cpus-per-task=4           # CPUs
 #SBATCH --mem=16G                   # Memory
@@ -29,4 +28,4 @@ for f in *.log; do
 done
 shopt -u nullglob
 
-python compare_models.py 2>&1
+python benchmark_models.py 2>&1

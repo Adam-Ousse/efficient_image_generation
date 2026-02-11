@@ -182,3 +182,5 @@ cython_debug/
 
 *.log
 temp_test_outputs/
+*.png
+*.csv
