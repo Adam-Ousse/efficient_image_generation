@@ -2,6 +2,7 @@ import time
 import threading
 import torch
 import gc
+import os
 
 from .metrics import ResourceSnapshot, ResourceMetrics
 
@@ -17,7 +18,10 @@ try:
     import pynvml
     PYNVML_AVAILABLE = True
     pynvml.nvmlInit()
-except:
+except ImportError:
+    PYNVML_AVAILABLE = False
+    print("Warning: nvidia-ml-py not installed. Install with: pip install nvidia-ml-py")
+except Exception:
     PYNVML_AVAILABLE = False
 
 
@@ -48,19 +52,28 @@ class ResourceMonitor:
         
         self._data = {
             "time": [],
-            "vram_used_mb": [],
+            "vram_reserved_mb": [],
+            "vram_allocated_mb": [],
+            "vram_fragmentation_mb": [],
             "vram_total_mb": [],
             "ram_used_mb": [],
             "ram_total_mb": [],
             "gpu_util": [],
             "cpu_util": [],
-            "power_watts": []
+            "power_watts": [],
+            "pcie_tx_kb_s": [],
+            "pcie_rx_kb_s": [],
         }
         
         self._thread = None
         self._running = [False]  # Use list so thread can see changes
         self._start_time = None
         self.process = psutil.Process()
+
+        # Number of CPUs this job is allowed to use.
+        # On SLURM: SLURM_CPUS_PER_TASK; otherwise all logical CPUs.
+        self._n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', None) or
+                           psutil.cpu_count(logical=True) or 1)
         
         # Initialize GPU if available
         self.gpu_handle = None
@@ -74,24 +87,31 @@ class ResourceMonitor:
         """Take one sample of all resources"""
         current_time = time.time() - self._start_time
         
-        # CPU and RAM
-        cpu_util = self.process.cpu_percent(interval=0)
-        ram = psutil.virtual_memory()
-        ram_used_mb = ram.used / (1024 ** 2)
-        ram_total_mb = ram.total / (1024 ** 2)
+        # CPU
+        # self.process.cpu_percent() returns usage summed across all cores
+        # used by THIS process (e.g. 800% if all 8 allocated cores are busy).
+        # Divide by the number of CPUs allocated to this job so the result is
+        # 0-100 % where 100 % means "all allocated CPUs are fully saturated".
+        cpu_util = min(self.process.cpu_percent(interval=None) / self._n_cpus, 100.0)
+        # RSS = physical RAM pages belonging to this process
+        ram_used_mb  = self.process.memory_info().rss / (1024 ** 2)
+        ram_total_mb = psutil.virtual_memory().total / (1024 ** 2)  # kept for reference
         
         # GPU metrics
-        vram_used_mb = 0
-        vram_total_mb = 0
-        gpu_util = 0
+        vram_reserved_mb  = 0
+        vram_allocated_mb = 0
+        vram_total_mb     = 0
+        gpu_util    = 0
         power_watts = None
+        pcie_tx_kb_s = None
+        pcie_rx_kb_s = None
         
         if self.gpu_handle:
             try:
-                # VRAM via pynvml
+                # VRAM via pynvml (physical, real allocation)
                 mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-                vram_used_mb = mem_info.used / (1024 ** 2)
-                vram_total_mb = mem_info.total / (1024 ** 2)
+                vram_reserved_mb  = mem_info.used / (1024 ** 2)  # total used by driver
+                vram_total_mb     = mem_info.total / (1024 ** 2)
                 
                 # GPU utilization
                 util_info = pynvml.nvmlDeviceGetUtilizationRates(self.gpu_handle)
@@ -101,26 +121,49 @@ class ResourceMonitor:
                 try:
                     power_mw = pynvml.nvmlDeviceGetPowerUsage(self.gpu_handle)
                     power_watts = power_mw / 1000.0
-                except:
+                except Exception:
                     pass
-            except:
-                pass
-        elif torch.cuda.is_available():
-            # Fallback to torch if pynvml not available
-            try:
-                vram_used_mb = torch.cuda.memory_allocated(self.gpu_index) / (1024 ** 2)
-                vram_total_mb = torch.cuda.get_device_properties(self.gpu_index).total_memory / (1024 ** 2)
-            except:
+
+                # PCIe throughput (KB/s)
+                try:
+                    pcie_tx_kb_s = pynvml.nvmlDeviceGetPcieThroughput(
+                        self.gpu_handle, pynvml.NVML_PCIE_UTIL_TX_BYTES
+                    )
+                    pcie_rx_kb_s = pynvml.nvmlDeviceGetPcieThroughput(
+                        self.gpu_handle, pynvml.NVML_PCIE_UTIL_RX_BYTES
+                    )
+                except Exception:
+                    pass
+            except Exception:
                 pass
         
+        # PyTorch allocator breakdown (independent of pynvml)
+        if torch.cuda.is_available():
+            try:
+                vram_allocated_mb = torch.cuda.memory_allocated(self.gpu_index) / (1024 ** 2)
+                if not self.gpu_handle:
+                    # fallback if pynvml unavailable
+                    vram_reserved_mb  = torch.cuda.memory_reserved(self.gpu_index) / (1024 ** 2)
+                    vram_total_mb = (
+                        torch.cuda.get_device_properties(self.gpu_index).total_memory / (1024 ** 2)
+                    )
+            except Exception:
+                pass
+
+        vram_fragmentation_mb = max(0.0, vram_reserved_mb - vram_allocated_mb)
+        
         self._data["time"].append(current_time)
-        self._data["vram_used_mb"].append(vram_used_mb)
+        self._data["vram_reserved_mb"].append(vram_reserved_mb)
+        self._data["vram_allocated_mb"].append(vram_allocated_mb)
+        self._data["vram_fragmentation_mb"].append(vram_fragmentation_mb)
         self._data["vram_total_mb"].append(vram_total_mb)
         self._data["ram_used_mb"].append(ram_used_mb)
         self._data["ram_total_mb"].append(ram_total_mb)
         self._data["gpu_util"].append(gpu_util)
         self._data["cpu_util"].append(cpu_util)
         self._data["power_watts"].append(power_watts)
+        self._data["pcie_tx_kb_s"].append(pcie_tx_kb_s)
+        self._data["pcie_rx_kb_s"].append(pcie_rx_kb_s)
     
     def _monitoring_loop(self):
         """Background thread loop"""
@@ -132,6 +175,7 @@ class ResourceMonitor:
         """Start monitoring"""
         self._running[0] = True
         self._start_time = time.time()
+        self.process.cpu_percent(interval=None)   # prime: first call always returns 0.0
         self._thread = threading.Thread(target=self._monitoring_loop, daemon=True)
         self._thread.start()
     
@@ -155,10 +199,32 @@ class ResourceMonitor:
         return False
 
 
-def cleanup_gpu():
-    """Cleanup GPU memory"""
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    time.sleep(0.5)
+# def cleanup_gpu():
+#     """Cleanup GPU memory"""
+#     gc.collect()
+#     if torch.cuda.is_available():
+#         torch.cuda.empty_cache()
 
+def cleanup_gpu():
+    """
+    Proper VRAM release. Order matters.
+    1. Break Python ref cycles first
+    2. Force cyclic GC (handles __del__ chains)
+    3. Release PyTorch's allocator cache
+    4. Optionally trim the malloc arena (Linux only)
+    """
+    gc.collect()                          # first pass — marks cycle members
+    gc.collect()                          # second pass — finalizes __del__
+    gc.collect()                          # third pass — cleans up weakrefs etc.
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()          # wait for all CUDA ops to finish
+        torch.cuda.empty_cache()          # release PyTorch's cached blocks
+        torch.cuda.ipc_collect()          # release IPC memory handles
+
+    # Trim glibc malloc arena — recovers RAM too, Linux only
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass

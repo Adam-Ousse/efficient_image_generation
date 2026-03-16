@@ -8,7 +8,7 @@ from src.evaluation import compare_models_fid
 # Configuration - Edit these parameters
 # ============================================================================
 
-OUTPUT_DIR = 'benchmark_results_20260211_022815'  # Directory containing benchmark outputs
+OUTPUT_DIR = 'benchmark_results_20260211_143024'  # Directory containing benchmark outputs
 REFERENCE_MODEL = 'FLUX2-Klein-FP16'  # Reference model to compare against
 DEVICE = 'cuda'  # Device to use for computation
 BATCH_SIZE = 32  # Batch size for feature extraction
@@ -31,29 +31,30 @@ def plot_fid_scores(results_df: pd.DataFrame, reference_model: str, save_path=No
     }])
     plot_data = pd.concat([plot_data, ref_row], ignore_index=True)
     
-    # Sort by quantization level (Q2 -> Q4 -> FP16)
+    # Sort by quantization level (Q2 -> Q3 -> Q4 -> Q5 -> FP16)
     # Extract quantization info for sorting
     def quantization_order(model_name):
-        if 'Q2' in model_name:
-            return 0
-        elif 'Q4' in model_name:
-            return 1
-        else:  # FP16 or other
-            return 2
+        # FP16/FP32 go last
+        if 'FP16' in model_name or 'FP32' in model_name:
+            return 100
+        # Extract Q number (Q2, Q3, Q4, Q5, etc.)
+        import re
+        quant_match = re.search(r'Q(\d+)', model_name)
+        if quant_match:
+            return int(quant_match.group(1))
+        return 50  # Unknown formats go in middle
     
     plot_data['sort_key'] = plot_data['model'].apply(quantization_order)
     plot_data = plot_data.sort_values('sort_key')
     
-    # Extract short labels for x-axis
+    # Extract short labels for x-axis (take last part after '-')
     def extract_quant_label(model_name):
-        if 'Q2_K' in model_name:
-            return 'Q2_K'
-        elif 'Q4_K_M' in model_name:
-            return 'Q4_K_M'
-        elif 'FP16' in model_name:
-            return 'FP16'
-        else:
-            return model_name
+        # Extract quantization level from model name
+        # Examples: FLUX2-Klein-Q4_K_M -> Q4_K_M, FLUX2-Klein-FP16 -> FP16
+        parts = model_name.split('-')
+        if len(parts) > 0:
+            return parts[-1]
+        return model_name
     
     plot_data['label'] = plot_data['model'].apply(extract_quant_label)
     
@@ -87,13 +88,6 @@ def plot_fid_scores(results_df: pd.DataFrame, reference_model: str, save_path=No
     
     # Add legend
     ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
-    
-    # Add note similar to the MMLU plot
-    note_text = "Note: Plots closer to the blue (FP16) line means better quality.\nLower FID scores indicate better image quality."
-    ax.text(0.02, 0.98, note_text, 
-            transform=ax.transAxes, fontsize=11,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
     
     # Adjust y-axis to show more detail
     y_min = min(plot_data['fid_score']) - (max(plot_data['fid_score']) * 0.1)
@@ -146,7 +140,7 @@ def main():
     
     # Save to CSV if requested
     if SAVE_CSV:
-        csv_path = Path(SAVE_CSV)
+        csv_path = output_dir / SAVE_CSV
         results_df.to_csv(csv_path, index=False)
         print(f"Results saved to {csv_path}")
     
@@ -162,7 +156,8 @@ def main():
     print("\n" + "="*80)
     print("Generating FID plot...")
     print("="*80)
-    plot_fid_scores(results_df, REFERENCE_MODEL, save_path=SAVE_PLOT)
+    save_plot_path = output_dir / SAVE_PLOT if SAVE_PLOT else None
+    plot_fid_scores(results_df, REFERENCE_MODEL, save_path=save_plot_path)
 
 
 if __name__ == '__main__':

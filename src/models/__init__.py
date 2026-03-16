@@ -1,5 +1,5 @@
-"""Model loading utilities"""
+from .base import ModelBase
+from .flux import FluxModel
+from .zimage import ZImageModel
 
-from .loader import load_pipeline
-
-__all__ = ["load_pipeline"]
+__all__ = ["ModelBase", "FluxModel", "ZImageModel"]

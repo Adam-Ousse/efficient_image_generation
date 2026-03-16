@@ -2,6 +2,6 @@
 
 __version__ = "0.1.0"
 
-from . import models, monitoring
+from . import models, monitoring, utils
 
 __all__ = ['models', 'monitoring']

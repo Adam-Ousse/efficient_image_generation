@@ -8,11 +8,14 @@ huggingface_hub>=0.16.0
 
 # Monitoring dependencies
 psutil>=5.9.0
-nvidia-ml-py3>=7.352.0  # pynvml for GPU monitoring
+nvidia-ml-py>=12.0.0  # pynvml for GPU monitoring (replaces deprecated nvidia-ml-py3)
 pandas>=1.5.0
 matplotlib>=3.5.0
 
-# Optional: For evaluation (will add later)
-# clip-score
-# easyocr
-# torch-fidelity
+# Optional: For evaluation
+easyocr>=1.7.0          # EasyOCR backend
+python-Levenshtein      # CER/WER metrics
+scikit-image            # SSIM metric
+scipy                   # FID metric
+# GLM-OCR backend (install separately):
+# pip install git+https://github.com/huggingface/transformers.git
