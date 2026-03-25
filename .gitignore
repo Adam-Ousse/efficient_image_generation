@@ -183,6 +183,8 @@ cython_debug/
 *.log
 temp_test_outputs/
 *.png
+!figures/
+!figures/**
 *.csv
 
 results/
