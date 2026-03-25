@@ -42,7 +42,6 @@ from src.models.zimage import ZImageModel
 from prompts.prompts_benchmark_models import PROMPTS
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
 _4B   = "black-forest-labs/FLUX.2-klein-4B"
 _9B   = "black-forest-labs/FLUX.2-klein-9B"
 _dev = "black-forest-labs/FLUX.2-dev"
@@ -50,8 +49,8 @@ _GGUF_4B = "unsloth/FLUX.2-klein-4B-GGUF"
 _GGUF_9B = "unsloth/FLUX.2-klein-9B-GGUF"
 
 MODELS = [
-    # {"name": "FLUX2-Klein-dev-FP16",   "model_id": _dev, "gguf_path": None},
-    {"name": "FLUX2-Klein-9B-FP16",   "model_id": _9B, "gguf_path": None},
+    {"name": "FLUX2-Klein-dev-FP16",   "model_id": _dev, "gguf_path": None},
+    # {"name": "FLUX2-Klein-9B-FP16",   "model_id": _9B, "gguf_path": None},
     # {"name": "FLUX2-Klein-4B-FP16",   "model_id": _4B, "gguf_path": None},
     # {"name": "FLUX2-Klein-4B-Q5_K_M", "model_id": _4B, "gguf_path": f"{_GGUF_4B}/flux-2-klein-4b-Q5_K_M.gguf"},
     # {"name": "FLUX2-Klein-4B-Q4_K_M", "model_id": _4B, "gguf_path": f"{_GGUF_4B}/flux-2-klein-4b-Q4_K_M.gguf"},
@@ -62,7 +61,6 @@ MODELS = [
     # {"name": "Z-Image-Turbo", "model_id": "Tongyi-MAI/Z-Image-Turbo", "gguf_path": None, "cls": ZImageModel},
 ]
 
-# ── Generation params ─────────────────────────────────────────────────────────
 SEEDS      = [42, 123, 456]
 DEVICE     = "cuda"
 DTYPE      = torch.bfloat16
@@ -74,7 +72,6 @@ GEN_PARAMS = {
 }
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _outpath(base: Path, prompt_label: str, seed: int, model_name: str) -> Path:
     p = base / prompt_label / f"seed_{seed}"
@@ -89,7 +86,6 @@ def _save_prompt(base: Path, prompt_label: str, prompt_text: str):
         f.write_text(prompt_text, encoding="utf-8")
 
 
-# ── Per-model benchmark ───────────────────────────────────────────────────────
 
 def benchmark_model(model_cfg: dict, prompts: list, seeds: list,
                     out_dir: Path) -> list[dict]:
@@ -156,7 +152,6 @@ def benchmark_model(model_cfg: dict, prompts: list, seeds: list,
     return rows
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()

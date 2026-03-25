@@ -42,16 +42,6 @@ from .offload import (
     NUM_STREAMS,
 )
 from .pipeline_utils import fix_execution_device, fix_cpu_text_encoder, run_generation
-from .strategies import (
-    StrategyResult,
-    run_full_gpu,
-    run_full_cpu,
-    run_diffusers_offload,
-    run_sequential_cpu_offload,
-    run_group_offload,
-    run_smart_offload,
-    run_smart_encode,
-)
 __all__ = [
     # Main class
     "SmartOffloadManager",
@@ -73,13 +63,4 @@ __all__ = [
     "fix_execution_device",
     "fix_cpu_text_encoder",
     "run_generation",
-    # Strategies
-    "StrategyResult",
-    "run_full_gpu",
-    "run_full_cpu",
-    "run_diffusers_offload",
-    "run_sequential_cpu_offload",
-    "run_group_offload",
-    "run_smart_offload",
-    "run_smart_encode",
 ]

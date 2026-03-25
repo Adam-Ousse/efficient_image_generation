@@ -9,20 +9,22 @@ import matplotlib.pyplot as plt
 from src.evaluation import evaluate_text_in_images, compare_models_ocr
 
 
-# ============================================================================
 # Configuration - Edit these parameters
-# ============================================================================
 
-OUTPUT_DIR = r'results/benchmark_20260310_193241'  # Directory containing benchmark outputs
-REFERENCE_MODEL = 'FLUX2-Klein-FP16'  # Reference model
+OUTPUT_DIR = r'results/benchmark_latest'  # Directory containing benchmark outputs
+REFERENCE_MODEL = 'FLUX2-Klein-dev-FP16'  # Reference model
 # OCR_BACKEND = 'easyocr'  # OCR backend: 'easyocr' or 'glm' (GLM-OCR zai-org/GLM-OCR)
 OCR_BACKEND = 'glm' 
 LANGUAGES = ['en']  # OCR languages (easyocr only)
 USE_GPU = True  # Use GPU for OCR
-SAVE_CSV = 'ocr_results.csv'  # Save detailed results
-SAVE_SUMMARY_CSV = 'ocr_summary.csv'  # Save aggregated results per model
-SAVE_PLOT = 'ocr_plot.png'  # Save plot
-
+SAVE_CSV = 'ocr_results_distillation.csv'  # Save detailed results
+SAVE_SUMMARY_CSV = 'ocr_summary_distillation.csv'  # Save aggregated results per model
+SAVE_PLOT = 'ocr_plot_distillation.png'  # Save plot
+models_to_evaluate = [
+    'FLUX2-Klein-dev-FP16',
+    "FLUX2-Klein-9B-FP16",
+    "FLUX2-Klein-4B-FP16",
+]
 # Map prompt labels to expected text (if prompt names don't contain the text)
 # Leave as None to auto-extract from prompt names with quotes
 PROMPT_TEXT_MAPPING = None  
@@ -39,9 +41,7 @@ PROMPT_TEXT_MAPPING = None
     
 # }
 
-# =======================================================================
 # Plotting
-# ============================================================================
 
 def plot_ocr_metrics(summary_df: pd.DataFrame, reference_model: str, save_path=None):
     """Plot OCR metrics ordered by quantization level"""
@@ -49,16 +49,26 @@ def plot_ocr_metrics(summary_df: pd.DataFrame, reference_model: str, save_path=N
     plot_data = summary_df.copy()
     
     # Sort by quantization level (Q2 -> Q3 -> Q4 -> Q5 -> FP16)
-    def quantization_order(model_name):
-        if 'FP16' in model_name or 'FP32' in model_name:
-            return 100
-        import re
-        quant_match = re.search(r'Q(\d+)', model_name)
-        if quant_match:
-            return int(quant_match.group(1))
-        return 50
+    def quantization_order(model_name, quantization=None):
+        # if quantization is none : Distillation order 
+        if quantization:
+            if 'FP16' in model_name or 'FP32' in model_name:
+                return 100
+            import re
+            quant_match = re.search(r'Q(\d+)', model_name)
+            if quant_match:
+                return int(quant_match.group(1))
+            return 50
+        else: 
+            if "dev" in model_name:
+                return 100
+            elif "9b" in model_name:
+                return 90
+            elif "4b" in model_name:
+                return 80
+            
     
-    plot_data['sort_key'] = plot_data['model'].apply(quantization_order)
+    plot_data['sort_key'] = plot_data['model'].apply(quantization_order, quantization=False)
     plot_data = plot_data.sort_values('sort_key')
     
     # Extract short labels for x-axis
@@ -134,9 +144,7 @@ def plot_ocr_metrics(summary_df: pd.DataFrame, reference_model: str, save_path=N
     plt.show()
 
 
-# ============================================================================
 # Main evaluation
-# ============================================================================
 
 def main():
     output_dir = Path(OUTPUT_DIR)
@@ -165,6 +173,7 @@ def main():
         prompt_text_mapping=PROMPT_TEXT_MAPPING,
         backend=OCR_BACKEND,
         languages=LANGUAGES,
+        models_to_evaluate= models_to_evaluate,
         gpu=USE_GPU
     )
     

@@ -1,5 +1,3 @@
-"""vram.py — GPU memory measurement and cleanup helpers."""
-
 import gc
 
 import torch

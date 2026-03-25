@@ -150,7 +150,8 @@ def compute_fid(ref_images: Union[str, Path, List[Path]],
 def compare_models_fid(output_dir: Union[str, Path],
                        reference_model: str = "FLUX2-Klein-FP16",
                        device: str = 'cuda',
-                       batch_size: int = 32) -> pd.DataFrame:
+                       batch_size: int = 32,
+                       models_to_evaluate: List[str] = None) -> pd.DataFrame:
     """
     Compare all models against reference model using FID
     
@@ -159,6 +160,7 @@ def compare_models_fid(output_dir: Union[str, Path],
         reference_model: Name of reference model (default: FLUX2-Klein-FP16)
         device: Device for computation
         batch_size: Batch size for feature extraction
+        models_to_evaluate: List of models to evaluate (if None, evaluate all models)
     
     Returns:
         DataFrame with FID scores for each model
@@ -184,7 +186,10 @@ def compare_models_fid(output_dir: Union[str, Path],
         raise ValueError(f"Reference model {reference_model} not found. Available: {all_models}")
     
     # Get comparison models (all except reference)
-    comparison_models = [m for m in all_models if m != reference_model]
+    if models_to_evaluate:
+        comparison_models = [m for m in models_to_evaluate if m != reference_model]
+    else:
+        comparison_models = [m for m in all_models if m != reference_model]
     
     print(f"Found {len(all_models)} models: {all_models}")
     print(f"Computing FID for {len(comparison_models)} models against {reference_model}")

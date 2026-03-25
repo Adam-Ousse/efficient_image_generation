@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=test        # Job name
+#SBATCH --job-name=benchmark        # Job name
 #SBATCH --output=log%j.log       # Both stdout and stderr go here
 #SBATCH --error=log%j.log        # Optional, can be the same file
 #SBATCH --time=01:00:00             # Max runtime
@@ -9,6 +9,11 @@
 #SBATCH --mem=32G                   # Memory
 #SBATCH --nodelist=ensta-l40s02.r2.enst.fr
 # Activate virtual environment
+
+export PYTHONUSERBASE=/home/ensta/ensta-gassem/.local
+export XDG_CACHE_HOME=/home/ensta/ensta-gassem/.cache
+export TMPDIR=/home/ensta/ensta-gassem/tmp
+mkdir -p $TMPDIR
 nvidia-smi
 source $HOME/dl_env/bin/activate
 
@@ -28,4 +33,4 @@ for f in *.log; do
 done
 shopt -u nullglob
 
-python benchmark_offload.py  2>&1
+python -u "comfy_test_2.py" 2>&1

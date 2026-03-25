@@ -42,13 +42,15 @@ def compute_ssim(image1_path: Union[str, Path],
 
 
 def evaluate_ssim_in_images(output_dir: Union[str, Path],
-                            reference_model: str = "FLUX2-Klein-FP16") -> pd.DataFrame:
+                            reference_model: str = "FLUX2-Klein-FP16",
+                            models_to_evaluate: List[str] = None) -> pd.DataFrame:
     """
     Evaluate SSIM for all generated images against reference model
     
     Args:
         output_dir: Directory with prompt/seed/model structure
         reference_model: Name of reference model to compare against
+        models_to_evaluate: List of models to evaluate (if None, evaluate all models)
     
     Returns:
         DataFrame with SSIM scores for each image
@@ -88,6 +90,10 @@ def evaluate_ssim_in_images(output_dir: Union[str, Path],
                 
                 # Skip comparing reference to itself
                 if model_name == reference_model:
+                    continue
+                
+                # Skip models not in the evaluation list
+                if models_to_evaluate and model_name not in models_to_evaluate:
                     continue
                 
                 try:

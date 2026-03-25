@@ -198,13 +198,6 @@ class ResourceMonitor:
         self.stop()
         return False
 
-
-# def cleanup_gpu():
-#     """Cleanup GPU memory"""
-#     gc.collect()
-#     if torch.cuda.is_available():
-#         torch.cuda.empty_cache()
-
 def cleanup_gpu():
     """
     Proper VRAM release. Order matters.

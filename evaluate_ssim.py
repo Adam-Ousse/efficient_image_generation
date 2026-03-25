@@ -9,20 +9,16 @@ import matplotlib.pyplot as plt
 from src.evaluation import evaluate_ssim_in_images, compare_models_ssim
 
 
-# ============================================================================
 # Configuration - Edit these parameters
-# ============================================================================
 
-OUTPUT_DIR = r'results/benchmark_20260310_193241'  # Directory containing benchmark outputs
-REFERENCE_MODEL = 'FP16'  # Reference model to compare against
+OUTPUT_DIR = r'results/benchmark_flux_qwen_latest'  # Directory containing benchmark outputs
+REFERENCE_MODEL = 'FLUX-4B-FP16__Qwen-4B-BF16'  # Reference model to compare against
 SAVE_CSV = 'ssim_results.csv'  # Save detailed results
 SAVE_SUMMARY_CSV = 'ssim_summary.csv'  # Save aggregated results per model
 SAVE_PLOT = 'ssim_plot.png'  # Save plot
 
 
-# ============================================================================
 # Plotting
-# ============================================================================
 
 def plot_ssim_scores(summary_df: pd.DataFrame, reference_model: str, save_path=None):
     """Plot SSIM scores ordered by quantization level"""
@@ -109,9 +105,7 @@ def plot_ssim_scores(summary_df: pd.DataFrame, reference_model: str, save_path=N
     plt.show()
 
 
-# ============================================================================
 # Main evaluation
-# ============================================================================
 
 def main():
     output_dir = Path(OUTPUT_DIR)

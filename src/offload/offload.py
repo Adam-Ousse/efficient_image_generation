@@ -27,9 +27,7 @@ import weakref
 import torch
 import torch.nn as nn
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Optional GGUF support (diffusers ≥ 0.32)
-# ─────────────────────────────────────────────────────────────────────────────
 try:
     from diffusers.quantizers.gguf.utils import (
         GGUFParameter,
@@ -46,9 +44,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Constants
-# ─────────────────────────────────────────────────────────────────────────────
 
 INFERENCE_HEADROOM_BYTES: int = int(0.8 * 1024 ** 3)   # 0.8 GB  (ComfyUI minimum_inference_memory)
 DEFAULT_EXTRA_RESERVED:   int = int(0.4 * 1024 ** 3)   # 0.4 GB  safety margin
@@ -76,9 +72,7 @@ def _compute_max_pinned():
 MAX_PINNED_BYTES: int = _compute_max_pinned()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Memory helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
 def module_direct_bytes(module: nn.Module):
     """Bytes owned directly by this module (not by children). Mirrors ComfyUI module_size()."""
@@ -109,10 +103,8 @@ def model_total_bytes(model: nn.Module):
     return module_subtree_bytes(model)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PinnedMemoryTracker
 # Mirrors: ComfyUI PINNED_MEMORY dict + TOTAL_PINNED_MEMORY counter
-# ─────────────────────────────────────────────────────────────────────────────
 
 class PinnedMemoryTracker:
     """
@@ -200,10 +192,8 @@ class PinnedMemoryTracker:
         logger.debug("All pinned memory released.")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # StreamPool
 # Mirrors: ComfyUI STREAMS dict + stream_counters + get_offload_stream()
-# ─────────────────────────────────────────────────────────────────────────────
 
 class StreamPool:
     """
@@ -245,10 +235,8 @@ class StreamPool:
         return len(self._streams) > 0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Streaming unit discovery & VRAM budget
 # Mirrors: ComfyUI model_patcher._load_list() + load_models_gpu()
-# ─────────────────────────────────────────────────────────────────────────────
 
 # Unit: (name, module, subtree_bytes)
 
@@ -354,9 +342,7 @@ def classify_modules(units, budget: int, num_streams: int = 2):
     return resident, streaming
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # SmartOffloadManager
-# ─────────────────────────────────────────────────────────────────────────────
 
 class SmartOffloadManager:
     """
@@ -453,7 +439,10 @@ class SmartOffloadManager:
         # (uint8) are copied H→D into a ring buffer; dequantization then runs
         # on GPU as usual, but no D→H copy ever occurs in post_hook.
         self._ring_buffers: dict[str, list] = {}
-
+        # gguf
+        self._patched_gguf_linears = [] 
+        self._gguf_dq_buf = None
+        self._gguf_layer_hooks = {}
         self._all_units = find_streaming_units(model)
         total = model_total_bytes(model)
         cap   = f"{max_vram_gb:.1f} GB cap" if max_vram_gb is not None else "auto cap"
@@ -462,7 +451,6 @@ class SmartOffloadManager:
             f"{total//1024**2} MB total, {len(self._all_units)} units, {cap})"
         )
 
-    # ── load / unload ─────────────────────────────────────────────────────────
 
     def load(self, force_full_load: bool = False):
         """Classify modules, move residents to GPU, pin + hook streaming modules."""
@@ -495,14 +483,16 @@ class SmartOffloadManager:
         for _name, module, _size in self._streaming:
             module.to(self.cpu, non_blocking=False)
 
-        # ── per-streaming-module: ring buffers + hooks ─────────────────────────
         for name, module, _size in self._streaming:
             self._build_ring_buffers(name, module)
             # Pin the CPU tensors once; they never move again.
             self._pin_module(module)
             h1, h2 = self._install_hooks(name, module)
             self._hooks.extend([h1, h2])
-
+        self._gguf_dq_buf = self._alloc_gguf_dq_buf()
+        if self._gguf_dq_buf is not None:
+            for name, module, _size in self._streaming:
+                self._setup_gguf_layer_hooks(name, module)
         self._loaded = True
         res_mb  = sum(s for _, _, s in self._resident)  // 1024 ** 2
         strm_mb = sum(s for _, _, s in self._streaming) // 1024 ** 2
@@ -522,7 +512,11 @@ class SmartOffloadManager:
         for h in self._hooks:
             h.remove()
         self._hooks.clear()
-
+        for layer, orig_fwd, _ in self._patched_gguf_linears:
+            layer.forward = orig_fwd
+        self._patched_gguf_linears.clear()
+        self._gguf_layer_hooks.clear()
+        self._gguf_dq_buf = None
         # Free GPU ring buffers
         self._ring_buffers.clear()
 
@@ -541,7 +535,6 @@ class SmartOffloadManager:
         logger.info("Unloaded: weights on CPU, hooks removed, pinned memory freed.")
         return self
 
-    # ── pinning helpers ───────────────────────────────────────────────────────
 
     def _pin_module(self, module: nn.Module):
         for p in module.parameters():
@@ -559,7 +552,6 @@ class SmartOffloadManager:
             if b.device.type == "cpu":
                 self._pins.unpin(b)
 
-    # ── ring buffer allocation ────────────────────────────────────────────────
 
     def _is_gguf(self, t: torch.Tensor) -> bool:
         return _HAS_GGUF and isinstance(t, GGUFParameter)
@@ -581,6 +573,8 @@ class SmartOffloadManager:
                 continue
             seen_ids.add(pid)
             if p.device.type != "cpu":
+                continue
+            if self._is_gguf(p):
                 continue
             entries.append(('param', p, p.data))          # no gpu_buf
 
@@ -633,26 +627,13 @@ class SmartOffloadManager:
         )
         return buf
 
-    # ── GGUF per-layer hook setup ─────────────────────────────────────────────
 
     def _setup_gguf_layer_hooks(self, name: str, module: nn.Module):
-        """
-        For every GGUFLinear in `module`:
-          1. Patch its forward() so that when _offload_ring_active is set it
-             performs a plain F.linear over the shared dequant ring buffer
-             instead of calling dequantize_gguf_tensor (which allocates on GPU).
-          2. Register pre/post hooks:
-               pre:  CPU dequant → H→D into ring_slice → swap weight param.
-               post: restore original GGUFParameter weight.
-        """
         if self._gguf_dq_buf is None:
             return
 
-        dq_buf   = self._gguf_dq_buf
-        mgr_ref  = weakref.ref(self)
-        mod_name = name
-
-        layer_hooks: list = []
+        dq_buf = self._gguf_dq_buf
+        mgr_ref = weakref.ref(self)
 
         for _lname, submod in module.named_modules():
             if not isinstance(submod, GGUFLinear):
@@ -661,78 +642,64 @@ class SmartOffloadManager:
             if not self._is_gguf(w):
                 continue
 
-            gl = submod  # capture
-
-            # ── 1. Patch forward ──────────────────────────────────────────────
-            orig_fwd        = gl.forward
-            orig_fwd_native = gl.forward_native
-
-            # Build a slice of the shared dq_buf shaped to this layer's weight
-            out_f, in_f    = w.quant_shape
-
-            def _make_patched_fwd(layer, o_f, i_f, o_fwd):
-                # closed over: layer, o_f, i_f (dequantized shape), o_fwd
-                def patched_fwd(inputs):
+            # Capture dimensions
+            out_f, in_f = w.quant_shape
+            
+            # Patch forward to use ring buffer when active
+            orig_fwd = submod.forward
+            def make_patched_fwd(layer, original_fwd):
+                def fwd(inputs):
                     if getattr(layer, '_offload_ring_active', False):
-                        # weight has been replaced by a plain Parameter wrapping
-                        # a slice of dq_buf → use forward_native (safe path)
                         return layer.forward_native(inputs)
-                    return o_fwd(inputs)
-                return patched_fwd
-
-            gl.forward = _make_patched_fwd(gl, out_f, in_f, orig_fwd)
-            self._patched_gguf_linears.append((gl, orig_fwd, None))
-
-            # ── 2. Pre-hook: CPU dequant → ring buf → swap weight ─────────────
-            def _make_pre(layer, o_f, i_f, cpu_weight):
-                def gl_pre(mod, _inputs):
+                    return original_fwd(inputs)
+                return fwd
+            
+            submod.forward = make_patched_fwd(submod, orig_fwd)
+            
+            # Pre-hook: CPU dequant → H→D copy → swap weight
+            def make_pre_hook(layer, cpu_weight, o_f, i_f):
+                def hook(mod, inp):
                     mgr = mgr_ref()
-                    if mgr is None or not mgr._loaded or mgr._gguf_dq_buf is None:
+                    if mgr is None or not mgr._loaded:
                         return
-                    # CPU-side dequantize (no GPU allocation)
+                    
+                    # CPU-side dequantize (cheap, no GPU alloc)
                     with torch.no_grad():
                         cpu_fp = dequantize_gguf_tensor(cpu_weight)
-                        cdt    = getattr(layer, 'compute_dtype', None) or torch.float16
+                        cdt = getattr(layer, 'compute_dtype', torch.float16) or torch.float16
                         cpu_fp = cpu_fp.to(cdt)
-
-                    # H→D into slice of the shared ring buffer
-                    ring_slice = mgr._gguf_dq_buf[: o_f * i_f].view(o_f, i_f)
+                    
+                    # H→D into ring buffer slice
+                    ring_slice = mgr._gguf_dq_buf[:o_f * i_f].view(o_f, i_f)
                     stream = mgr._streams.next()
+                    
                     if stream is not None:
                         with torch.cuda.stream(stream):
                             ring_slice.copy_(cpu_fp, non_blocking=True)
+                        mgr._streams.sync_current_to(stream)
                     else:
                         ring_slice.copy_(cpu_fp, non_blocking=False)
-                    mgr._streams.sync_current_to(stream)
-
-                    # Temporarily replace GGUFParameter with a plain Parameter
-                    # wrapping the ring slice so forward_native does F.linear.
+                    
+                    # Swap to ring buffer parameter
                     layer._offload_saved_weight = layer._parameters['weight']
-                    layer._parameters['weight'] = nn.Parameter(
-                        ring_slice, requires_grad=False
-                    )
+                    layer._parameters['weight'] = nn.Parameter(ring_slice, requires_grad=False)
                     layer._offload_ring_active = True
-                return gl_pre
-
-            # ── 3. Post-hook: restore GGUFParameter ──────────────────────────
-            def _make_post(layer):
-                def gl_post(mod, _inputs, _output):
+                return hook
+            
+            # Post-hook: restore GGUFParameter
+            def make_post_hook(layer):
+                def hook(mod, inp, out):
                     layer._offload_ring_active = False
                     saved = getattr(layer, '_offload_saved_weight', None)
                     if saved is not None:
                         layer._parameters['weight'] = saved
                         del layer._offload_saved_weight
-                return gl_post
+                return hook
+            
+            h1 = submod.register_forward_pre_hook(make_pre_hook(submod, w, out_f, in_f))
+            h2 = submod.register_forward_hook(make_post_hook(submod))
+            self._hooks.extend([h1, h2])
 
-            h1 = gl.register_forward_pre_hook(
-                _make_pre(gl, out_f, in_f, w)
-            )
-            h2 = gl.register_forward_hook(_make_post(gl))
-            layer_hooks.append((h1, h2))
-
-        self._gguf_layer_hooks[name] = layer_hooks
-
-    # ── streaming-module forward hooks ────────────────────────────────────────
 
     def _install_hooks(self, name: str, module: nn.Module):
         """
@@ -791,7 +758,6 @@ class SmartOffloadManager:
         h2 = module.register_forward_hook(post_hook)
         return h1, h2
 
-    # ── context manager ───────────────────────────────────────────────────────
 
     def __enter__(self):
         return self.load()
@@ -799,7 +765,6 @@ class SmartOffloadManager:
     def __exit__(self, *_):
         self.unload()
 
-    # ── diagnostics ──────────────────────────────────────────────────────────
 
     def summary(self):
         res_mb  = sum(s for _, _, s in self._resident)  / 1024 ** 2

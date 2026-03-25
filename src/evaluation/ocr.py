@@ -8,9 +8,7 @@ from PIL import Image
 import Levenshtein
 
 
-# ============================================================================
 # OCR Backends
-# ============================================================================
 
 class EasyOCRBackend:
     """EasyOCR backend for text extraction"""
@@ -72,9 +70,7 @@ class GLMOCRBackend:
         return output_text.strip()
 
 
-# ============================================================================
 # OCR Evaluator
-# ============================================================================
 
 class OCREvaluator:
     """Evaluate text presence and accuracy in generated images"""
@@ -251,6 +247,7 @@ def evaluate_text_in_images(output_dir: Union[str, Path],
                             backend: str = 'easyocr',
                             languages=['en'],
                             gpu=True,
+                            models_to_evaluate: List[str] = None,
                             device_map='auto') -> pd.DataFrame:
     """
     Evaluate OCR text in all generated images
@@ -262,6 +259,7 @@ def evaluate_text_in_images(output_dir: Union[str, Path],
         backend: OCR backend to use - 'easyocr' or 'glm'
         languages: Languages for EasyOCR (ignored for GLM-OCR)
         gpu: Use GPU for EasyOCR
+        models_to_evaluate: List of specific models to evaluate (if None, evaluate all)
         device_map: Device map for GLM-OCR
     
     Returns:
@@ -314,6 +312,10 @@ def evaluate_text_in_images(output_dir: Union[str, Path],
             
             for image_path in image_files:
                 model_name = image_path.stem
+                
+                if models_to_evaluate is not None and model_name not in models_to_evaluate:
+                    print(f"  Skipping {model_name} (not in models_to_evaluate)")
+                    continue
                 
                 try:
                     metrics = evaluator.evaluate_image(image_path, expected_text)
